@@ -219,7 +219,8 @@ commands = {
                 sleeve: {},
             };
             sendChat('Marshal', '/e : Combat Begins!')
-            sendChat('Marshal', '!recall all !shuffle')
+            commands['!recall'](msg, args);
+            commands['!shuffle'](msg, args);
             sendChat('Marshal', '[Roll Quickness](!init new)')
         }else{
             sendChat('DLCC', 'Only the Marshal can start combat.')
