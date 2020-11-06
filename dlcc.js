@@ -18,33 +18,18 @@ function getData(type, ident, val){
     };
 }
 
-function getDeck(name){
-    //return getData('deck', 'name', name);
-    return findObjs({
-        _type:'deck',
-        name: name
-    })[0];
-};
-
-function getPlayer(id){
-    return findObjs({
-        _type:'player',
-        _id: id
-    })[0];
-};
-
-function getCharacterSheet(name){
-    return findObjs({
-        _type:'character',
-        name: name
-    })[0];
-};
-
-function getToken(id){
-    return findObjs({
-        _type:'graphic',
-        _id: id
-    })[0];
+function getPlayerData(msg){
+    var player = getData('player', '_id', msg.playerid)
+    var char   = getData('character', '_name', msg.who)
+    var hand   = getData('hand', '_parentid', msg.playerid)
+    if (player && char && hand) {
+        return {
+            player: player,
+            char:   char,
+            hand:   hand
+        };
+    };
+    return false
 };
 
 function getAttribute(id, name){
@@ -59,25 +44,10 @@ function getAttribute(id, name){
     return false;
 }
 
-function getHand(id){
-    return findObjs({
-        _type: 'hand',
-        _parentid: id
-    })[0];
-};
-
 function getAllData(type){
     return findObjs({
         _type: type
     });
-};
-
-function getPlayerData(msg){
-    return {
-        player: getPlayer(msg.playerid),
-        char:   getCharacterSheet(msg.who),
-        hand:   getHand(msg.id),
-    };
 };
 
 function getDiceRoll(id, skill, attr){
@@ -98,6 +68,10 @@ function doDiceRoll(usr, skill, attr, mod){
     if (!mod) {
         mod = 0
     };
+    var skill_mod = getAttribute(usr.char.id, skill+'mod', attr+'mod')
+    if (skill_mod){
+        mod += parseInt(skill_mod)
+    };
     var lvl = getAttribute(usr.char.id, skill+'lvl', attr+'lvl')
     if (!lvl){
         lvl = getAttribute(usr.char.id, attr+'lvl')
@@ -110,7 +84,7 @@ function doDiceRoll(usr, skill, attr, mod){
 };
 
 function checkGM(msg){
-    var player = getPlayer(msg.playerid)
+    var player = getData('player', '_id', msg.playerid)
     if (player && player.get('_lastpage') != ''){
         return true;
     };
@@ -119,6 +93,7 @@ function checkGM(msg){
 
 var card_order = ['Joker', 'Ace','King','Queen','Jack','Ten','Nine','Eight','Seven','Six','Five','Four','Three','Two']
 var suit_order = ['Red', 'Black', 'Spades', 'Hearts', 'Diamonds', 'Clubs']
+var shootin_macro = '!power {{ --name|@{selected|token_name} fires off a few rounds with his pistol! --Attack| He needs [[ [$TN] 1d0+?{TN|5} ]], he gets [[ [$ATK] @{selected|shootinlvl}@{selected|defdtype}!!k1 ]]  --vfx_opt|@{selected|token_id} @{target|token_id} gunshot  --?? $ATK >= $TN ?? He deals|[[ [$DMG] floor(3d6!!/6) ]] wounds to the [[ 1t[hit_table] ]]  --?? $ATK >= $TN ?? alterbar|_target|@{target|token_id} _bar|3 _amount|-[^DMG] _show|all  --?? $ATK >= $TN ?? vfx_opt|@{target|token_id} @{selected|token_id} splatter-blood  --?? @{target|bar3} - $DMG <= 0 ?? api_token-mod|_ids @{target|token_id} _ignore-selected _set statusmarkers|dead}}'
 
 var combat = false
 
@@ -140,7 +115,7 @@ commands = {
     },
     '!setmarshal': function(msg, args){
         if (checkGM(msg)){
-            var player = getPlayer(msg.playerid)
+            var player = getData('player', '_id', msg.playerid)
             state.dlcc.marshal_name = player.get('_displayname').split(' ')[0]
             sendChat('DLCC', '/w '+state.dlcc.marshal_name+' You have been set as the Game Marshal.')
         };
@@ -149,7 +124,7 @@ commands = {
     '!recall': function(msg, args){
         if (checkGM(msg)){
             sendChat('Marshal', '/e gathers the deck')
-            var deck = getDeck('action_deck');
+            var deck = getData('deck', 'name', 'action_deck')
             if (args[0] == 'all'){
                 recallCards(deck.id);
                 args.shift()
@@ -163,7 +138,7 @@ commands = {
     },
     '!shuffle': function(msg, args){
         if (checkGM(msg)){
-            var deck = getDeck('action_deck')
+            var deck = getData('deck', 'name', 'action_deck')
             recallCards(deck.get('_id'));
             shuffleDeck(deck.get('_id'));
             sendChat('Marshal', '/e shuffles like a boss.');
@@ -185,25 +160,25 @@ commands = {
             var hands = getAllData('hand')
             var players = getAllData('player')
             if (hands){
-                if (players.length === hands.length){
-                    for (i = 0; i < hands.length; i++){
-                        var player = getData('player', '_id', hands[i].get('_parentid'))
-                        if (player){
-                            sendChat('DLCC', 'Dealing '+player.get('_displayname')+' 3 chips.')
-                            var player_online = player.get('_online')
-                            if (player_online) {
-                                for (f = 0; f < 3; f++){
-                                    var card = drawCard(deck.id)
-                                    giveCardToPlayer(card, player.id);
-                                };
-                            };
-                        }
-                    };
-                }else{
+                if (players.length != hands.length){
                     sendChat('DLCC', 'Some players have no hand data.  Make sure every player has been dealt at least one card to create a hand object for me to find.');
                 };
+                _.each(hands, function(hand){
+                    var player = getData('player', '_id', hand.get('_parentid'))
+                    glog(player)
+                    if (player){
+                        sendChat('DLCC', 'Dealing '+player.get('_displayname')+' 3 chips.')
+                        var player_online = player.get('_online')
+                        if (player_online) {
+                            for (f = 0; f < 3; f++){
+                                var card = drawCard(deck.id)
+                                giveCardToPlayer(card, player.id);
+                            };
+                        };
+                    }
+                });
             }else{
-                sendChat('DLCC', 'No hand data found, if this is a new game deal each player a card from the Playing Cards deck then retry.')
+                sendChat('DLCC', 'No hand data found, if this is a new game deal each player a card from any deck then retry.')
             };
         }else{
             sendChat('DLCC', 'Only the Marshal can deal out fate!')
@@ -261,7 +236,7 @@ commands = {
                             var cards = Math.min(1 + Math.ceil((roll_result - 4) / 5), 5)
                             var reply = '@{'+msg.who+'|gmtoggle}&{template:default}{{'+msg.who+' joins the fight!}}{{dice='+roll_result+'}}{{cards='+cards+'}}'
                             sendChat(msg.who, '/w '+state.dlcc.marshal_name+' '+reply);
-                            var deck = getDeck('action_deck')
+                            var deck = getData('deck', 'name', 'action_deck')
                             for (i = 0; i < cards; i++){
                                 var card = drawCard(deck.id)
                                 giveCardToPlayer(card, user.player.id);
@@ -278,13 +253,13 @@ commands = {
             if (combat){
                 var hands = getAllData('hand')
                 log(hands)
-                var deck = getDeck('action_deck')
+                var deck = getData('deck', 'name', 'action_deck')
                 for (c = 0; c < card_order.length; c++){
                     for (s = 0; s < suit_order.length; s++){
                         var target = card_order[c] + ' of ' + suit_order[s]
                         //log('Checking target: '+target)
                         for (h = 0; h < hands.length; h++){
-                            var player = getPlayer(hands[h].get('_parentid'))
+                            var player = getData('player', '_id', msg.playerid)
                             log(player)
                             if (player){
                                 var player_name = player.get('_displayname')
@@ -347,6 +322,7 @@ commands = {
     },
     '!shoot': function(msg, args){
         sendChat(msg.who, '/e fires off a few rounds!')
+        //sendChat(msg.who, shootin_macro)
         doDiceRoll(combat.users[msg.playerid], 'shootin', 'def', combat.aim_bonus[msg.playerid]);
         combat.aim_bonus[msg.playerid] = 0
         return args;
@@ -381,8 +357,8 @@ on('ready', function(){
     log(state.dlcc)
     on('chat:message', function(msg){
         if (msg.type !== 'api') return;
-        log(msg)
-        var char = findObjs({_type:'character', name: msg.who})[0];
+        //log(msg)
+        var char = getData('character', 'name', msg.who)
         if (char || checkGM(msg)){
             var list = msg.content.split(' ');
             while (list.length > 0){
